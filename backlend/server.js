@@ -2,35 +2,40 @@ const express = require('express');
 const cors = require('cors');
 
 const app = express();
-app.use(cors()); // Allows your HTML file to communicate with this server
+
+// 1. Enable CORS so your frontend can talk to this backend
+app.use(cors()); 
 app.use(express.json());
 
-// Temporary in-memory storage (until you connect a real database)
+// Temporary in-memory storage
+// NOTE: Data will reset every time the server restarts (which happens on free tier sleep)
 const membersDatabase = [];
 const connectionsDatabase = [];
 
 app.post('/api/protocol/submit', (req, res) => {
     const { metadata, fields } = req.body;
 
+    if (!metadata || !fields) {
+        return res.status(400).json({ message: "Invalid data format" });
+    }
+
     // --- PROTOCOL INTELLIGENCE & SCORING ---
     let agencyScore = 100;
     let flags = [];
 
-    // 1. Sunk Cost Analysis (Manifesto Reading Time)
-    // If they scrolled through 150 words in less than 3 seconds, they didn't read it.
+    // 1. Sunk Cost Analysis
     if (metadata.manifesto_ms < 3000) {
         agencyScore -= 30;
         flags.push("SKIPPED_MANIFESTO");
     }
 
-    // 2. Effort Analysis (Vision Typing Time)
-    // If they spent less than 10 seconds on their vision, it's low effort or copy/pasted.
+    // 2. Effort Analysis
     if (metadata.vision_ms < 10000) {
         agencyScore -= 40;
         flags.push("LOW_EFFORT_VISION");
     }
 
-    // 3. Network Mapping (Referral Edge)
+    // 3. Network Mapping
     if (fields.inviter && fields.inviter.trim() !== "") {
         connectionsDatabase.push({
             new_member: fields.discord,
@@ -38,7 +43,7 @@ app.post('/api/protocol/submit', (req, res) => {
             timestamp: metadata.ts_end
         });
     } else {
-        flags.push("LONE_WOLF"); // No social proof
+        flags.push("LONE_WOLF");
     }
 
     // --- CONSTRUCT FINAL RECORD ---
@@ -66,14 +71,12 @@ app.post('/api/protocol/submit', (req, res) => {
         }
     };
 
-    // Save to our temporary database
     membersDatabase.push(memberRecord);
 
     console.log(`\n[NEW PROTOCOL SUBMISSION] - Agency Score: ${agencyScore}/100`);
     console.log(`Applicant: ${fields.name} (${fields.discord})`);
     console.log(`Flags: ${flags.length > 0 ? flags.join(', ') : 'NONE'}`);
     
-    // Respond to the frontend
     res.status(200).json({ 
         message: "Protocol Received", 
         status: "PENDING",
@@ -81,7 +84,15 @@ app.post('/api/protocol/submit', (req, res) => {
     });
 });
 
-const PORT = 3000;
-app.listen(PORT, () => {
+// Add a simple test route so you can check if the server is alive in the browser
+app.get('/', (req, res) => {
+    res.send("Protocol Intelligence Server is Online 🟢");
+});
+
+// --- CRITICAL FIX HERE ---
+// Use the port provided by Render (process.env.PORT), otherwise default to 3000 for local testing
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`[SYSTEM] Protocol Intelligence Server running on port ${PORT}`);
 });
