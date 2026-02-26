@@ -571,13 +571,27 @@ async function submitProfile() {
                 skills: Array.from(document.querySelectorAll('.skill-cb:checked')).map(cb => cb.value)
             },
             device_fingerprint: fingerprint,
+security_audit: {
+                // ... your existing lines ...
+                copy_paste_count: ProtocolData.forensics.global.copy_paste_count,
+                honeypot_triggered: ProtocolData.forensics.global.honeypot_triggered,
+                window_blurs: ProtocolData.forensics.global.window_blurs,
+                // ... rest of the audit ...
+            },
         };
         const cleanId = `${applicantName.replace(/\s+/g, '_')}_${ProtocolData.session.id}`;
         
         console.log("Secure Payload Ready. Uploading to Database...");
         
         await db.collection("applicants").doc(cleanId).set(payload);
-        
+        // --- NEW: LINK TO BACKEND ---
+        console.log("Notifying Lead Architect via Protocol-Bridge...");
+        fetch("https://forum-backend1-00y4.onrender.com/submit", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        }).catch(err => console.log("Backend notification bridge failed, but Firebase saved."));
+        // ----------------------------
         console.log("Transmission Successful.");
         nextStep('success');
 
@@ -697,6 +711,11 @@ window.addEventListener('load', () => {
         });
     }
 });
+// Trigger auto-save every 5 seconds
+setInterval(saveProgress, 5000);
+
+// Also save whenever an input changes
+document.getElementById('protocolForm')?.addEventListener('input', saveProgress);
     </script>
 </body>
 </html>
