@@ -19,3 +19,13 @@ def submit_data():
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000)
+    # Add this route to your main.py
+@app.route('/get_data', methods=['GET'])
+def get_data():
+    # If you are using a global list for testing:
+    # return jsonify(all_applications) 
+    
+    # If you are using Firebase, fetch the docs and return them:
+    # applicants = db.collection("applicants").stream()
+    # return jsonify([doc.to_dict() for doc in applicants])
+    return jsonify({"status": "error", "message": "No database linked yet"}), 500

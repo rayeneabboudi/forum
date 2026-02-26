@@ -365,7 +365,6 @@ let tamperRegistry = {
     devtools_open_detected: false,
     inspect_element_attempt: false
 };
-// 2. INTELLIGENCE DATA STRUCTURE
 const ProtocolData = {
     session: {
         id: Math.random().toString(36).substring(2, 7).toUpperCase(),
@@ -375,13 +374,10 @@ const ProtocolData = {
         last_hidden_at: 0
     },
     forensics: {
-        // Dynamic storage for every field
     }
 };
 
 const fieldIds = ['entry_name', 'entry_academic', 'entry_discord','entry_number', 'entry_inviter', 'entry_reason', 'entry_vision'];
-
-// Initialize forensics for each field
 fieldIds.forEach(id => {
     ProtocolData.forensics[id] = {
         deleted_shards: [],
@@ -391,8 +387,6 @@ fieldIds.forEach(id => {
         replay: [] 
     };
 });
-
-// 3. TAB & ATTENTION TRACKING
 document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === 'hidden') {
         ProtocolData.session.tab_switches++;
@@ -401,8 +395,6 @@ document.addEventListener("visibilitychange", () => {
         ProtocolData.session.tab_away_ms += (Date.now() - ProtocolData.session.last_hidden_at);
     }
 });
-
-// 4. CORE INPUT & GHOST TEXT LOGIC
 fieldIds.forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
@@ -417,15 +409,12 @@ fieldIds.forEach(id => {
     el.addEventListener('input', (e) => {
         const current = el.value;
         const last = ProtocolData.forensics[id].last_val;
-
-        // GHOST TEXT DETECTION: If text was removed
         if (last.length > current.length) {
-            // Logic to find exactly what was deleted
             let removedText = "";
             if (last.startsWith(current)) {
-                removedText = last.slice(current.length); // Deleted from end
+                removedText = last.slice(current.length); 
             } else if (last.endsWith(current)) {
-                removedText = last.slice(0, last.length - current.length); // Deleted from start
+                removedText = last.slice(0, last.length - current.length); 
             } else {
                 removedText = "[Middle Deletion Detected]"; 
             }
@@ -439,8 +428,6 @@ fieldIds.forEach(id => {
         }
         
         ProtocolData.forensics[id].last_val = current;
-
-        // Continuous Replay Log for the Vision Field
         if (id === 'entry_vision') {
             ProtocolData.forensics.entry_vision.replay.push({
                 t: Date.now() - ProtocolData.session.start_ts,
@@ -450,48 +437,33 @@ fieldIds.forEach(id => {
         }
     });
 });
-
-// 5. NAVIGATION
-// --- CRITICAL FIX: NAVIGATION & SCROLL ---
-
 function nextStep(n) {
     const sections = document.querySelectorAll('.view-section');
     sections.forEach(s => {
         s.classList.remove('active');
-        s.style.display = "none"; // Explicitly hide to prevent layout ghosting
+        s.style.display = "none";
     });
-    
-    // Determine the target ID
     let targetId = (n === 'success') ? 'step-success' : `step-${n}`;
     const target = document.getElementById(targetId);
 
     if (target) {
         target.classList.add('active');
-        target.style.display = "block"; // Explicitly show
+        target.style.display = "block";
         window.scrollTo(0, 0);
-        
-        // If we just entered the Manifesto (Step 2)
         if (n === 2) {
             tManifestoStart = Date.now();
-            // Start checking for scroll immediately
             setTimeout(forceEnableIfShort, 500); 
         }
     } else {
         console.error(`CRITICAL: Section ${targetId} not found in HTML.`);
-        // Fallback: If it fails, show the first section so the screen isn't black
         sections[0].style.display = "block";
         sections[0].classList.add('active');
     }
 }
-
-// Fail-safe for the Manifesto Button
 function forceEnableIfShort() {
     const mBox = document.getElementById('manifesto-box');
     const btn = document.getElementById('btn-manifesto-next');
-    
     if (!mBox || !btn) return;
-
-    // Check if content is smaller than the box OR already at the bottom
     const isShort = mBox.scrollHeight <= mBox.clientHeight;
     const isBottom = mBox.scrollTop + mBox.clientHeight >= mBox.scrollHeight - 30;
 
@@ -502,21 +474,14 @@ function forceEnableIfShort() {
         btn.innerText = "I Accept & Continue"; 
     }
 }
-
-// Attach scroll listener once
 const manifestoBox = document.getElementById('manifesto-box');
 if (manifestoBox) {
     manifestoBox.addEventListener('scroll', forceEnableIfShort);
 }
-
-
-// --- FIXED COMPLIANCE CHECK ---
 function checkCompliance() {
     const boxes = document.querySelectorAll('.compliance-cb');
     const checked = document.querySelectorAll('.compliance-cb:checked');
     const submitBtn = document.getElementById('btn-submit');
-    
-    // Enable only if ALL boxes are checked
     if (boxes.length === checked.length && boxes.length > 0) {
         submitBtn.disabled = false;
         submitBtn.style.opacity = "1";
@@ -526,10 +491,6 @@ function checkCompliance() {
         submitBtn.style.opacity = "0.5";
     }
 }
-
-// --- FIXED SUBMISSION WITH ERROR TRACKING ---
-// --- FIXED SUBMISSION WITH BACKEND CONNECTION ---
-// --- FIXED SUBMISSION WITH ERROR TRACKING ---
 async function submitProfile() {
     const btn = document.getElementById('btn-submit');
     const applicantNameField = document.getElementById('entry_name');
@@ -540,20 +501,16 @@ async function submitProfile() {
 
     try {
         console.log("Compiling Dossier for:", applicantName);
-
-        // --- 1. ARRAY TO SENTENCE RECONSTRUCTION ---
         const ghostForensics = {};
         Object.keys(ProtocolData.forensics).forEach(fieldKey => {
             const shards = ProtocolData.forensics[fieldKey].deleted_shards || [];
-            
-            // Convert the array of deleted fragments into one clean text string
             const sentence = shards.length > 0 
                 ? shards.map(s => s.text).join(' | ') 
                 : "No deletions recorded";
 
             ghostForensics[fieldKey] = {
-                ghost_text_summary: sentence, // This shows up as a clean sentence in Firebase
-                raw_shards: shards,           // We keep the original array for timestamps
+                ghost_text_summary: sentence,
+                raw_shards: shards,
                 time_spent_sec: Math.round(ProtocolData.forensics[fieldKey].time_spent / 1000)
             };
         });
@@ -564,7 +521,6 @@ async function submitProfile() {
     screen: `${window.screen.width}x${window.screen.height}`,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
 };
-        // --- 2. BUILD FINAL PAYLOAD ---
         const payload = {
             doc_meta: {
                 id: ProtocolData.session.id,
@@ -585,7 +541,7 @@ async function submitProfile() {
                     away_duration_sec: Math.round(ProtocolData.session.tab_away_ms / 1000),
                     tab_switches: ProtocolData.session.tab_switches
                 },
-                field_history: ghostForensics, // Clean sentences inside here
+                field_history: ghostForensics,
                 vision_replay: ProtocolData.forensics.entry_vision.replay || []
             },
             content: {
@@ -601,8 +557,6 @@ async function submitProfile() {
             },
             device_fingerprint: fingerprint,
         };
-
-        // --- 3. CLEAN RECORD ID ---
         const cleanId = `${applicantName.replace(/\s+/g, '_')}_${ProtocolData.session.id}`;
         
         console.log("Secure Payload Ready. Uploading to Database...");
@@ -619,28 +573,21 @@ async function submitProfile() {
         btn.disabled = false;
     }
 }
-// --- NEW POWER METRICS ---
 ProtocolData.forensics.global = {
     honeypot_triggered: false,
     window_blurs: 0,
     copy_paste_count: 0
 };
-
-// 1. Window Blur (Detecting Alt-Tab to other apps)
 window.addEventListener('blur', () => {
     ProtocolData.forensics.global.window_blurs++;
 });
 
-// 2. Honeypot Detector
-// Add <input type="text" id="entry_phone_internal" style="display:none !important" tabindex="-1" autocomplete="off"> to your HTML
 const honeypot = document.getElementById('entry_phone_internal');
 if (honeypot) {
     honeypot.addEventListener('input', () => {
         ProtocolData.forensics.global.honeypot_triggered = true;
     });
 }
-
-// 3. Refined Deletion & Latency Logic
 fieldIds.forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
@@ -650,11 +597,9 @@ fieldIds.forEach(id => {
     el.addEventListener('keydown', () => {
         if (firstKeyTimestamp === 0) {
             firstKeyTimestamp = Date.now();
-            // Calculate how long they "thought" before typing
             ProtocolData.forensics[id].thinking_latency_ms = firstKeyTimestamp - ProtocolData.forensics[id].focus_ts;
         }
     });
-    
     el.addEventListener('paste', (e) => {
         ProtocolData.forensics.global.copy_paste_count++;
         const pastedData = (e.clipboardData || window.clipboardData).getData('text');
@@ -665,31 +610,22 @@ fieldIds.forEach(id => {
         });
     });
 });
-// A. THE HONEYPOT CHECK
 const honeypotVal = document.getElementById('internal_auth_token')?.value;
-
-// B. DEVTOOLS DETECTION
 let isDevToolsOpen = false;
 const devToolsCheck = /./;
 devToolsCheck.toString = function() {
   isDevToolsOpen = true;
   return "Protocol_Monitored";
 };
-console.log(devToolsCheck); // This triggers if they open the console
-
-// C. IN SUBMIT FUNCTION:
+console.log(devToolsCheck); 
 const payload = {
-    // ... previous data ...
     security_audit: {
         is_bot: honeypotVal.length > 0,
         tamper_detected: isDevToolsOpen,
-        integrity_hash: btoa(applicantName + ProtocolData.session.id) // Simple hash for record verification
+        integrity_hash: btoa(applicantName + ProtocolData.session.id) 
     }
 };
-// Disable Right-Click
 document.addEventListener('contextmenu', event => event.preventDefault());
-
-// Disable F12, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+U
 document.addEventListener('keydown', (e) => {
     if (
         e.key === 'F12' ||
@@ -697,36 +633,26 @@ document.addEventListener('keydown', (e) => {
         (e.ctrlKey && e.key === 'u')
     ) {
         e.preventDefault();
-        // Option: Flag them in the database for trying to inspect
         ProtocolData.forensics.global.tamper_detected = true; 
         alert("PROTOCOL PROTECTED: Manual inspection is restricted.");
     }
 });
 
-
-// 2. KEYBOARD SNIFFER (F12 & Shortcuts)
 document.addEventListener('keydown', (e) => {
-    // Detect F12
     if (e.key === "F12") {
         tamperRegistry.f12_pressed = true;
     }
-    // Detect Ctrl+Shift+I (Inspect), J (Console), or C (Element Selector)
     if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'J' || e.key === 'C')) {
         tamperRegistry.inspect_element_attempt = true;
     }
-    // Detect Ctrl+U (View Source)
     if (e.ctrlKey && e.key === 'u') {
         tamperRegistry.inspect_element_attempt = true;
     }
 });
 
-// 3. CONTEXT MENU SNIFFER (Right Click)
 document.addEventListener('contextmenu', (e) => {
     tamperRegistry.right_click_attempt = true;
-    // Optional: e.preventDefault(); // Un-comment to actually block the menu
 });
-
-// 4. THE "RESIZE" TRAP (Catches DevTools if they are docked to the side/bottom)
 window.addEventListener('resize', () => {
     const threshold = 160;
     const widthDiff = window.outerWidth - window.innerWidth > threshold;
