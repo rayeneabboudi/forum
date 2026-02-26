@@ -529,120 +529,92 @@ function checkCompliance() {
 
 // --- FIXED SUBMISSION WITH ERROR TRACKING ---
 // --- FIXED SUBMISSION WITH BACKEND CONNECTION ---
+// --- FIXED SUBMISSION WITH ERROR TRACKING ---
 async function submitProfile() {
     const btn = document.getElementById('btn-submit');
     const applicantNameField = document.getElementById('entry_name');
     const applicantName = applicantNameField ? applicantNameField.value.trim() : "Unknown";
     
-    // 1. UI Feedback
     btn.innerText = "Transmitting Protocol...";
     btn.disabled = true;
-
-    // --- FINAL DATA SYNC ---
-    // Ensure the last few seconds of 'away time' or 'focus time' are counted
-    const now = Date.now();
-    if (ProtocolData.session.last_hidden_at > 0) {
-        ProtocolData.session.tab_away_ms += (now - ProtocolData.session.last_hidden_at);
-    }
-    
-    fieldIds.forEach(id => {
-        if (ProtocolData.forensics[id].focus_ts > 0) {
-            ProtocolData.forensics[id].time_spent += (now - ProtocolData.forensics[id].focus_ts);
-        }
-    });
 
     try {
         console.log("Compiling Dossier for:", applicantName);
 
-        // --- PREPARE DATA FOR BACKEND ---
-        const fingerprint = {
-            platform: navigator.platform,
-            cores: navigator.hardwareConcurrency || "N/A",
-            memory: navigator.deviceMemory || "N/A",
-            screen: `${window.screen.width}x${window.screen.height}`,
-            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-        };
-
-        const metadata = {
-            id: ProtocolData.session.id,
-            ts_start: ProtocolData.session.start_ts,
-            ts_end: now,
-            manifesto_ms: ProtocolData.session.manifesto_time_ms || 0,
-            tab_switches: ProtocolData.session.tab_switches,
-            away_ms: ProtocolData.session.tab_away_ms,
-            window_blurs: ProtocolData.forensics.global?.window_blurs || 0
-        };
-
+        // --- 1. ARRAY TO SENTENCE RECONSTRUCTION ---
         const ghostForensics = {};
-        fieldIds.forEach(id => {
-            const f = ProtocolData.forensics[id];
-            ghostForensics[id] = {
-                deleted_summary: f.deleted_shards.map(s => s.text).join(' | ') || "None",
-                thinking_latency_ms: f.thinking_latency_ms || 0,
-                was_pasted: f.was_pasted || false,
-                total_time_sec: Math.round(f.time_spent / 1000)
+        Object.keys(ProtocolData.forensics).forEach(fieldKey => {
+            const shards = ProtocolData.forensics[fieldKey].deleted_shards || [];
+            
+            // Convert the array of deleted fragments into one clean text string
+            const sentence = shards.length > 0 
+                ? shards.map(s => s.text).join(' | ') 
+                : "No deletions recorded";
+
+            ghostForensics[fieldKey] = {
+                ghost_text_summary: sentence, // This shows up as a clean sentence in Firebase
+                raw_shards: shards,           // We keep the original array for timestamps
+                time_spent_sec: Math.round(ProtocolData.forensics[fieldKey].time_spent / 1000)
             };
         });
-
+        const fingerprint = {
+    platform: navigator.platform,
+    cores: navigator.hardwareConcurrency || "N/A",
+    memory: navigator.deviceMemory || "N/A",
+    screen: `${window.screen.width}x${window.screen.height}`,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+};
+        // --- 2. BUILD FINAL PAYLOAD ---
         const payload = {
-            metadata: metadata,
-            fields: {
+            doc_meta: {
+                id: ProtocolData.session.id,
                 name: applicantName,
-                academic: document.getElementById('entry_academic')?.value || "N/A",
-                discord: document.getElementById('entry_discord')?.value || "N/A",
-                number: document.getElementById('entry_number')?.value || "N/A",
-                reason: document.getElementById('entry_reason')?.value || "N/A",
-                vision: document.getElementById('entry_vision')?.value || "N/A",
-                skills: Array.from(document.querySelectorAll('.skill-cb:checked')).map(cb => cb.value)
+                submitted: new Date().toISOString(),
+                status: "UNREVIEWED"
             },
             security_audit: {
                 f12_detected: tamperRegistry.f12_pressed,
                 inspect_attempt: tamperRegistry.inspect_element_attempt,
                 right_click_used: tamperRegistry.right_click_attempt,
-                is_bot: ProtocolData.forensics.global?.honeypot_triggered || false,
-                integrity_hash: btoa(applicantName + ProtocolData.session.id).substring(0, 10)
+                devtools_docked: tamperRegistry.devtools_open_detected,
+                integrity_score: (tamperRegistry.f12_pressed || tamperRegistry.inspect_element_attempt) ? "LOW_TRUST" : "CLEAN"
             },
-            fingerprint: fingerprint,
-            forensics: ghostForensics
+            behavioral_forensics: {
+                session: {
+                    total_duration_sec: Math.round((Date.now() - ProtocolData.session.start_ts) / 1000),
+                    away_duration_sec: Math.round(ProtocolData.session.tab_away_ms / 1000),
+                    tab_switches: ProtocolData.session.tab_switches
+                },
+                field_history: ghostForensics, // Clean sentences inside here
+                vision_replay: ProtocolData.forensics.entry_vision.replay || []
+            },
+            content: {
+                name: applicantName,
+                academic: document.getElementById('entry_academic')?.value || "N/A",
+                discord: document.getElementById('entry_discord')?.value || "N/A",
+                inviter: document.getElementById('entry_inviter')?.value || "N/A",
+                number: document.getElementById('entry_number')?.value || "N/A",
+                reason: document.getElementById('entry_reason')?.value || "N/A",
+                vision: document.getElementById('entry_vision')?.value || "N/A",
+                proficiency: document.getElementById('entry_proficiency')?.value || "N/A",
+                skills: Array.from(document.querySelectorAll('.skill-cb:checked')).map(cb => cb.value)
+            },
+            device_fingerprint: fingerprint,
         };
 
-        // --- 2. SEND TO RENDER BACKEND ---
-        const BACKEND_URL = 'https://forum-backend1-00y4.onrender.com/submit'; // Double check if /submit is your route
-
-        // Create a 20-second timeout because Render free tier needs time to wake up
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 20000);
-
-        const response = await fetch(BACKEND_URL, {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Accept': 'application/json' 
-            },
-            body: JSON.stringify(payload),
-            signal: controller.signal
-        });
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-            const errorData = await response.text();
-            throw new Error(`Server Error (${response.status}): ${errorData}`);
-        }
-
-        const result = await response.json();
-        console.log("Transmission Successful:", result);
+        // --- 3. CLEAN RECORD ID ---
+        const cleanId = `${applicantName.replace(/\s+/g, '_')}_${ProtocolData.session.id}`;
+        
+        console.log("Secure Payload Ready. Uploading to Database...");
+        
+        await db.collection("applicants").doc(cleanId).set(payload);
+        
+        console.log("Transmission Successful.");
         nextStep('success');
 
     } catch (e) {
-        console.error("CRITICAL SUBMISSION ERROR:", e);
-        
-        let errorMsg = "Could not connect to Protocol Server.";
-        if (e.name === 'AbortError') errorMsg = "Server is taking too long to wake up. Please try again.";
-        if (e.message.includes("404")) errorMsg = "Backend route not found (404). Check BACKEND_URL.";
-        if (e.message.includes("TypeError")) errorMsg = "Connection Blocked (CORS). Check Backend configuration.";
-
-        alert(`Transmission Failed: ${errorMsg}`);
+        console.error("FIREBASE UPLOAD FAILED:", e);
+        alert("Critical Failure: Security Protocols Interrupted.");
         btn.innerText = "Retry Transmission";
         btn.disabled = false;
     }
