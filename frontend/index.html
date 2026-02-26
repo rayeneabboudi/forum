@@ -538,12 +538,23 @@ async function submitProfile() {
     btn.innerText = "Transmitting Protocol...";
     btn.disabled = true;
 
+    // --- FINAL DATA SYNC ---
+    // Ensure the last few seconds of 'away time' or 'focus time' are counted
+    const now = Date.now();
+    if (ProtocolData.session.last_hidden_at > 0) {
+        ProtocolData.session.tab_away_ms += (now - ProtocolData.session.last_hidden_at);
+    }
+    
+    fieldIds.forEach(id => {
+        if (ProtocolData.forensics[id].focus_ts > 0) {
+            ProtocolData.forensics[id].time_spent += (now - ProtocolData.forensics[id].focus_ts);
+        }
+    });
+
     try {
         console.log("Compiling Dossier for:", applicantName);
 
         // --- PREPARE DATA FOR BACKEND ---
-        // We need to match the structure your backend expects: { metadata, fields }
-        
         const fingerprint = {
             platform: navigator.platform,
             cores: navigator.hardwareConcurrency || "N/A",
@@ -555,65 +566,83 @@ async function submitProfile() {
         const metadata = {
             id: ProtocolData.session.id,
             ts_start: ProtocolData.session.start_ts,
-            ts_end: Date.now(),
-            manifesto_ms: tManifestoStart ? (Date.now() - tManifestoStart) : 0, // Approximate
-            vision_ms: ProtocolData.forensics.entry_vision.time_spent || 0,
+            ts_end: now,
+            manifesto_ms: ProtocolData.session.manifesto_time_ms || 0,
             tab_switches: ProtocolData.session.tab_switches,
-            away_ms: ProtocolData.session.tab_away_ms
+            away_ms: ProtocolData.session.tab_away_ms,
+            window_blurs: ProtocolData.forensics.global?.window_blurs || 0
         };
 
-        const fields = {
-            name: applicantName,
-            academic: document.getElementById('entry_academic')?.value || "N/A",
-            discord: document.getElementById('entry_discord')?.value || "N/A",
-            inviter: document.getElementById('entry_inviter')?.value || "N/A",
-            number: document.getElementById('entry_number')?.value || "N/A",
-            reason: document.getElementById('entry_reason')?.value || "N/A",
-            vision: document.getElementById('entry_vision')?.value || "N/A",
-            proficiency: document.getElementById('entry_proficiency')?.value || "N/A",
-            skills: Array.from(document.querySelectorAll('.skill-cb:checked')).map(cb => cb.value)
-        };
+        const ghostForensics = {};
+        fieldIds.forEach(id => {
+            const f = ProtocolData.forensics[id];
+            ghostForensics[id] = {
+                deleted_summary: f.deleted_shards.map(s => s.text).join(' | ') || "None",
+                thinking_latency_ms: f.thinking_latency_ms || 0,
+                was_pasted: f.was_pasted || false,
+                total_time_sec: Math.round(f.time_spent / 1000)
+            };
+        });
 
         const payload = {
             metadata: metadata,
-            fields: fields,
+            fields: {
+                name: applicantName,
+                academic: document.getElementById('entry_academic')?.value || "N/A",
+                discord: document.getElementById('entry_discord')?.value || "N/A",
+                number: document.getElementById('entry_number')?.value || "N/A",
+                reason: document.getElementById('entry_reason')?.value || "N/A",
+                vision: document.getElementById('entry_vision')?.value || "N/A",
+                skills: Array.from(document.querySelectorAll('.skill-cb:checked')).map(cb => cb.value)
+            },
             security_audit: {
                 f12_detected: tamperRegistry.f12_pressed,
                 inspect_attempt: tamperRegistry.inspect_element_attempt,
                 right_click_used: tamperRegistry.right_click_attempt,
-                devtools_docked: tamperRegistry.devtools_open_detected
-            }
+                is_bot: ProtocolData.forensics.global?.honeypot_triggered || false,
+                integrity_hash: btoa(applicantName + ProtocolData.session.id).substring(0, 10)
+            },
+            fingerprint: fingerprint,
+            forensics: ghostForensics
         };
 
         // --- 2. SEND TO RENDER BACKEND ---
-        // REPLACE THE URL BELOW WITH YOUR ACTUAL RENDER LINK
-        const BACKEND_URL = 'https://forum-backend1-00y4.onrender.com';
+        const BACKEND_URL = 'https://forum-backend1-00y4.onrender.com/submit'; // Double check if /submit is your route
 
-        console.log("Sending to Backend:", BACKEND_URL);
-        
+        // Create a 20-second timeout because Render free tier needs time to wake up
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 20000);
+
         const response = await fetch(BACKEND_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            headers: { 
+                'Content-Type': 'application/json',
+                'Accept': 'application/json' 
+            },
+            body: JSON.stringify(payload),
+            signal: controller.signal
         });
 
+        clearTimeout(timeoutId);
+
         if (!response.ok) {
-            throw new Error(`Server error: ${response.status}`);
+            const errorData = await response.text();
+            throw new Error(`Server Error (${response.status}): ${errorData}`);
         }
 
         const result = await response.json();
-        console.log("Backend Response:", result);
-
-        // --- 3. SUCCESS HANDLING ---
-        // Optional: You can still save to Firebase here if you want a backup copy
-        // await db.collection("applicants").doc(...).set(payload); 
-        
-        console.log("Transmission Successful.");
+        console.log("Transmission Successful:", result);
         nextStep('success');
 
     } catch (e) {
-        console.error("SUBMISSION FAILED:", e);
-        alert("Critical Failure: Could not connect to Protocol Server. Check console.");
+        console.error("CRITICAL SUBMISSION ERROR:", e);
+        
+        let errorMsg = "Could not connect to Protocol Server.";
+        if (e.name === 'AbortError') errorMsg = "Server is taking too long to wake up. Please try again.";
+        if (e.message.includes("404")) errorMsg = "Backend route not found (404). Check BACKEND_URL.";
+        if (e.message.includes("TypeError")) errorMsg = "Connection Blocked (CORS). Check Backend configuration.";
+
+        alert(`Transmission Failed: ${errorMsg}`);
         btn.innerText = "Retry Transmission";
         btn.disabled = false;
     }
